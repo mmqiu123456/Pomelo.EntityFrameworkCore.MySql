@@ -2,10 +2,18 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Pomelo.EntityFrameworkCore.MySql.Tests.TestUtilities.Attributes;
 using Xunit;
 
 namespace Pomelo.EntityFrameworkCore.MySql
 {
+    /// <summary>
+    /// The row-level locking and UPSERT extensions emit MySQL 8.0+ only syntax:
+    /// `FOR SHARE` (MySQL 8.0+) and `INSERT ... AS new ON DUPLICATE KEY UPDATE`
+    /// (row alias, MySQL 8.0.19+). MariaDB supports neither, so the whole class
+    /// is skipped on MariaDB and on MySQL versions below 8.0.19.
+    /// </summary>
+    [SupportedServerVersionCondition("8.0.19")]
     public class MySqlLockingAndUpsertExtensionsTest : TestBase<MySqlLockingAndUpsertExtensionsTest.MySqlLockingContext>
     {
         [ConditionalFact]
