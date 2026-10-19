@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Pomelo.EntityFrameworkCore.MySql.Tests.TestUtilities.Attributes;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -11,6 +12,11 @@ namespace Pomelo.EntityFrameworkCore.MySql
     ///     upgrade. The generated script is printed so that it can be compared against the EF Core 9
     ///     baseline (preview.3): an upgrade must not introduce unexpected schema changes.
     /// </summary>
+    /// <remarks>
+    ///     The generated DDL is MySQL specific, so the class is skipped on MariaDB and on MySQL
+    ///     versions below 8.0.19.
+    /// </remarks>
+    [SupportedServerVersionCondition("8.0.19")]
     public class MySqlMigrationsCompatibilityTest : TestBase<MySqlMigrationsCompatibilityTest.MigrationsContext>
     {
         private readonly ITestOutputHelper _output;
