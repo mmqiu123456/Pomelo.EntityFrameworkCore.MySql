@@ -4,7 +4,6 @@
 #nullable enable
 
 using System;
-using System.Collections.Generic;
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore.Query;
 using Pomelo.EntityFrameworkCore.MySql.Infrastructure.Internal;
@@ -28,44 +27,45 @@ namespace Pomelo.EntityFrameworkCore.MySql.Query.Internal
         /// <inheritdoc />
         protected override Expression ProcessSqlNullability(
             Expression queryExpression,
-            IReadOnlyDictionary<string, object?> parametersValues,
-            out bool canCache)
+            ParametersCacheDecorator parametersDecorator)
         {
             var nullabilityProcessor = new MySqlSqlNullabilityProcessor(Dependencies, Parameters);
-            return nullabilityProcessor.Process(queryExpression, parametersValues, out canCache);
+            return nullabilityProcessor.Process(queryExpression, parametersDecorator);
         }
 
-        /// <inheritdoc />
-        public override Expression Optimize(
+        /// <summary>
+        /// EF Core 10 replaced the obsolete <c>Optimize(...)</c> extension point with this
+        /// <c>Process(...)</c> overload. The standard EF Core processing runs first
+        /// (ProcessSqlNullability — overridden above to use MySqlSqlNullabilityProcessor —
+        /// followed by ExpandFromSqlParameter), then the MySQL-specific optimizations are applied.
+        /// </summary>
+        /// <remarks>
+        /// Caching semantics are fully retained compared to the previous EF Core 9 based
+        /// implementation: the optimization visitors below invoke
+        /// <see cref="ParametersCacheDecorator.GetAndDisableCaching"/> only in the exact same cases
+        /// in which the old implementation set <c>canCache = false</c>, namely when a parameterized
+        /// LIMIT/OFFSET is used (SkipTakeCollapsingExpressionVisitor) or when parameters are actually
+        /// inlined (MySqlParameterInliningExpressionVisitor, JSON_TABLE scenarios).
+        /// In all other cases the query remains cacheable.
+        /// </remarks>
+        public override Expression Process(
             Expression queryExpression,
-            IReadOnlyDictionary<string, object?> parametersValues,
-            out bool canCache)
+            ParametersCacheDecorator parametersDecorator)
         {
-            // Let the base class handle standard EF Core processing.
-            // ProcessSqlNullability (overridden above) is called by base.Optimize internally,
-            // so our MySqlSqlNullabilityProcessor handles all Pomelo custom expression types.
-            queryExpression = base.Optimize(queryExpression, parametersValues, out canCache);
+            queryExpression = base.Process(queryExpression, parametersDecorator);
 
-            // Then apply MySQL-specific optimizations.
-            queryExpression = ApplyMySqlOptimizations(queryExpression, parametersValues, out var mysqlCanCache);
-            canCache &= mysqlCanCache;
-
-            return queryExpression;
+            return ApplyMySqlOptimizations(queryExpression, parametersDecorator);
         }
 
         internal Expression ApplyMySqlOptimizations(
             Expression queryExpression,
-            IReadOnlyDictionary<string, object?> parametersValues,
-            out bool canCache)
+            ParametersCacheDecorator parametersDecorator)
         {
-            canCache = true;
-
             if (_options.ServerVersion.Supports.MySqlBugLimit0Offset0ExistsWorkaround)
             {
                 queryExpression = new SkipTakeCollapsingExpressionVisitor(
                     Dependencies.SqlExpressionFactory)
-                    .Process(queryExpression, parametersValues, out var canCache2);
-                canCache &= canCache2;
+                    .Process(queryExpression, parametersDecorator);
             }
 
             if (_options.IndexOptimizedBooleanColumns)
@@ -78,8 +78,7 @@ namespace Pomelo.EntityFrameworkCore.MySql.Query.Internal
             queryExpression = new MySqlParameterInliningExpressionVisitor(
                 Dependencies.TypeMappingSource,
                 Dependencies.SqlExpressionFactory,
-                _options).Process(queryExpression, parametersValues, out var canCache3);
-            canCache &= canCache3;
+                _options).Process(queryExpression, parametersDecorator);
 
             // Compatibility checks run late in the query pipeline.
             queryExpression = new MySqlCompatibilityExpressionVisitor(_options)

@@ -388,6 +388,7 @@ namespace Pomelo.EntityFrameworkCore.MySql.Query.ExpressionVisitors.Internal
         {
             var selectExpression = deleteExpression.SelectExpression;
 
+
             if (selectExpression.Offset == null
                 && selectExpression.Having == null
                 && selectExpression.GroupBy.Count == 0
@@ -439,6 +440,7 @@ namespace Pomelo.EntityFrameworkCore.MySql.Query.ExpressionVisitors.Internal
         protected override Expression VisitUpdate(UpdateExpression updateExpression)
         {
             var selectExpression = updateExpression.SelectExpression;
+
 
             if (selectExpression.Offset == null
                 && selectExpression.Having == null
@@ -571,15 +573,16 @@ namespace Pomelo.EntityFrameworkCore.MySql.Query.ExpressionVisitors.Internal
         {
             if (valuesExpression.RowValues is null)
             {
-                throw new UnreachableException();
-            }
-
-            if (_options.ServerVersion.Supports.Values ||
-                _options.ServerVersion.Supports.ValuesWithRows)
-            {
+                // Parameterized collection (VALUES parameter) — let the base implementation render
+                // the parameter reference, which is valid MySQL syntax.
                 base.GenerateValues(valuesExpression);
                 return;
             }
+
+            // MySQL does not support the `SELECT ... UNION ALL VALUES ROW(...)` syntax that the
+            // EF Core 10 base implementation renders for multi-row value constructions, so always
+            // use the universally compatible `SELECT ... UNION ALL SELECT ...` rendering here,
+            // even on server versions that support the `VALUES ROW(...)` table value constructor.
 
             var rowValues = valuesExpression.RowValues;
 
@@ -617,16 +620,10 @@ namespace Pomelo.EntityFrameworkCore.MySql.Query.ExpressionVisitors.Internal
 
         protected override Expression VisitRowValue(RowValueExpression rowValueExpression)
         {
-            if (_options.ServerVersion.Supports.Values)
-            {
-                return base.VisitRowValue(rowValueExpression);
-            }
-
-            if (_options.ServerVersion.Supports.ValuesWithRows)
-            {
-                Sql.Append("ROW");
-                return base.VisitRowValue(rowValueExpression);
-            }
+            // Render row values as plain value tuples `(v1, v2, ...)`.
+            // The `VALUES ROW(...)` table value constructor syntax is no longer emitted by
+            // `GenerateValues` (MySQL does not support `SELECT ... UNION ALL VALUES ROW(...)`),
+            // so the `ROW` prefix is not needed in any context we currently generate.
 
             //
             // Columns for backwards compatible SELECT statement:
